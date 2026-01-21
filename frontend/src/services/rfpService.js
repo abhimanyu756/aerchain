@@ -86,3 +86,13 @@ export const getRFPComparison = async (rfpId) => {
     const response = await api.get(`/rfps/${rfpId}/comparison`);
     return response.data;
 };
+
+/**
+ * Get RFP with vendor send status
+ * @param {number} rfpId - RFP ID
+ * @returns {Promise} - RFP with vendors and their send status
+ */
+export const getRFPWithVendors = async (rfpId) => {
+    const response = await api.get(`/rfps/${rfpId}/vendors`);
+    return response.data;
+};

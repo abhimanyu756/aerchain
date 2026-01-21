@@ -93,11 +93,37 @@ async function isVendorAssociatedWithRFP(rfpId, vendorId) {
 }
 
 /**
+ * Check if proposal already exists for this RFP and vendor
+ * @param {number} rfpId - RFP ID
+ * @param {number} vendorId - Vendor ID
+ * @returns {Promise<boolean>}
+ */
+async function proposalExists(rfpId, vendorId) {
+    try {
+        const result = await db.query(
+            'SELECT 1 FROM proposals WHERE rfp_id = $1 AND vendor_id = $2',
+            [rfpId, vendorId]
+        );
+        return result.rows.length > 0;
+    } catch (error) {
+        console.error('Error checking proposal exists:', error);
+        return false;
+    }
+}
+
+/**
  * Save proposal to database
  * @param {object} proposalData - Proposal data
  * @returns {Promise<object>} - Created proposal
  */
 async function saveProposal(proposalData) {
+    // Check for duplicate
+    const exists = await proposalExists(proposalData.rfp_id, proposalData.vendor_id);
+    if (exists) {
+        console.log(`   ⚠️ Proposal already exists for RFP ${proposalData.rfp_id} from vendor ${proposalData.vendor_id}, skipping`);
+        return null;
+    }
+
     const query = `
         INSERT INTO proposals (
             rfp_id, vendor_id, total_price, delivery_time_days,
@@ -262,7 +288,7 @@ async function checkForNewEmails(checkAll = false) {
 
         const fetchOptions = {
             bodies: ['HEADER', 'TEXT', ''],
-            markSeen: false, // Don't mark as seen during debug
+            markSeen: true, // Mark as seen to prevent reprocessing
         };
 
         const messages = await connection.search(searchCriteria, fetchOptions);

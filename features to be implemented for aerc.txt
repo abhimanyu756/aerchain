@@ -1,0 +1,2 @@
+features to be implemented for aerchain
+1) in view rfp page for individual, how we can check to which vendor it has been sent

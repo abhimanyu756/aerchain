@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import LoadingSpinner from '../components/common/LoadingSpinner';
-import { getRFPById, sendRFPToVendors } from '../services/rfpService';
+import { getRFPById, sendRFPToVendors, getRFPWithVendors } from '../services/rfpService';
 import { getAllVendors } from '../services/vendorService';
 
 const SendRFP = () => {
@@ -9,6 +9,7 @@ const SendRFP = () => {
     const navigate = useNavigate();
     const [rfp, setRfp] = useState(null);
     const [vendors, setVendors] = useState([]);
+    const [sentVendorIds, setSentVendorIds] = useState([]);
     const [selectedVendors, setSelectedVendors] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
@@ -23,12 +24,19 @@ const SendRFP = () => {
         setLoading(true);
         setError(null);
         try {
-            const [rfpData, vendorData] = await Promise.all([
+            const [rfpData, vendorData, rfpWithVendors] = await Promise.all([
                 getRFPById(id),
                 getAllVendors(),
+                getRFPWithVendors(id).catch(() => ({ vendors: [] })),
             ]);
             setRfp(rfpData);
             setVendors(vendorData);
+
+            // Get IDs of vendors who have already been sent this RFP
+            const sentIds = rfpWithVendors.vendors
+                ?.filter(v => v.rfp_status === 'sent' || v.rfp_status === 'responded')
+                .map(v => v.id) || [];
+            setSentVendorIds(sentIds);
         } catch (err) {
             setError(err.error || err.message || 'Failed to load data');
         } finally {
@@ -37,6 +45,9 @@ const SendRFP = () => {
     };
 
     const handleVendorToggle = (vendorId) => {
+        // Don't allow toggling already-sent vendors
+        if (sentVendorIds.includes(vendorId)) return;
+
         setSelectedVendors((prev) =>
             prev.includes(vendorId)
                 ? prev.filter((id) => id !== vendorId)
@@ -45,10 +56,12 @@ const SendRFP = () => {
     };
 
     const handleSelectAll = () => {
-        if (selectedVendors.length === vendors.length) {
+        // Only select vendors who haven't been sent to yet
+        const unsent = vendors.filter(v => !sentVendorIds.includes(v.id)).map(v => v.id);
+        if (selectedVendors.length === unsent.length) {
             setSelectedVendors([]);
         } else {
-            setSelectedVendors(vendors.map((v) => v.id));
+            setSelectedVendors(unsent);
         }
     };
 
@@ -69,6 +82,13 @@ const SendRFP = () => {
         } finally {
             setSending(false);
         }
+    };
+
+    const getVendorStatus = (vendorId) => {
+        if (sentVendorIds.includes(vendorId)) {
+            return 'sent';
+        }
+        return 'not_sent';
     };
 
     if (loading) {
@@ -133,6 +153,9 @@ const SendRFP = () => {
         );
     }
 
+    const unsentVendors = vendors.filter(v => !sentVendorIds.includes(v.id));
+    const sentVendors = vendors.filter(v => sentVendorIds.includes(v.id));
+
     return (
         <div className="px-6 py-8">
             <div className="mb-6">
@@ -166,35 +189,81 @@ const SendRFP = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                    <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+                    {/* Already Sent Section */}
+                    {sentVendors.length > 0 && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
+                            <h2 className="text-lg font-bold text-green-800 mb-4 flex items-center gap-2">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Already Sent ({sentVendors.length})
+                            </h2>
+                            <div className="space-y-2">
+                                {sentVendors.map((vendor) => (
+                                    <div
+                                        key={vendor.id}
+                                        className="flex items-center p-3 bg-white rounded-lg border border-green-200"
+                                    >
+                                        <div className="flex-shrink-0 w-10 h-10 bg-green-100 rounded-full flex items-center justify-center mr-3">
+                                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex-grow">
+                                            <div className="font-medium text-gray-900">{vendor.name}</div>
+                                            <div className="text-sm text-gray-500">{vendor.email}</div>
+                                        </div>
+                                        <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                                            Sent ✓
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Select Vendors Section */}
+                    <div className="bg-white rounded-lg shadow-md p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold">Select Vendors</h2>
-                            <button
-                                onClick={handleSelectAll}
-                                className="text-blue-600 hover:text-blue-800 text-sm"
-                            >
-                                {selectedVendors.length === vendors.length ? 'Deselect All' : 'Select All'}
-                            </button>
+                            <h2 className="text-xl font-bold">
+                                {sentVendors.length > 0 ? 'Send to More Vendors' : 'Select Vendors'}
+                            </h2>
+                            {unsentVendors.length > 0 && (
+                                <button
+                                    onClick={handleSelectAll}
+                                    className="text-blue-600 hover:text-blue-800 text-sm"
+                                >
+                                    {selectedVendors.length === unsentVendors.length ? 'Deselect All' : 'Select All'}
+                                </button>
+                            )}
                         </div>
 
-                        {vendors.length === 0 ? (
+                        {unsentVendors.length === 0 ? (
                             <div className="text-center py-8">
-                                <p className="text-gray-500 mb-4">No vendors found</p>
-                                <button
-                                    onClick={() => navigate('/vendors/new')}
-                                    className="text-blue-600 hover:text-blue-800"
-                                >
-                                    Add vendors first
-                                </button>
+                                {vendors.length === 0 ? (
+                                    <>
+                                        <p className="text-gray-500 mb-4">No vendors found</p>
+                                        <button
+                                            onClick={() => navigate('/vendors/new')}
+                                            className="text-blue-600 hover:text-blue-800"
+                                        >
+                                            Add vendors first
+                                        </button>
+                                    </>
+                                ) : (
+                                    <p className="text-gray-500">
+                                        All vendors have already received this RFP
+                                    </p>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                {vendors.map((vendor) => (
+                                {unsentVendors.map((vendor) => (
                                     <label
                                         key={vendor.id}
                                         className={`flex items-center p-4 rounded-lg border cursor-pointer transition-colors ${selectedVendors.includes(vendor.id)
-                                                ? 'border-blue-500 bg-blue-50'
-                                                : 'border-gray-200 hover:border-gray-300'
+                                            ? 'border-blue-500 bg-blue-50'
+                                            : 'border-gray-200 hover:border-gray-300'
                                             }`}
                                     >
                                         <input
@@ -245,12 +314,17 @@ const SendRFP = () => {
                         </div>
 
                         <div className="border-t mt-4 pt-4">
-                            <div className="text-sm text-gray-600 mb-4">
+                            <div className="text-sm text-gray-600 mb-2">
                                 <span className="font-semibold text-lg text-gray-900">
                                     {selectedVendors.length}
                                 </span>
-                                {' '}vendor(s) selected
+                                {' '}new vendor(s) selected
                             </div>
+                            {sentVendors.length > 0 && (
+                                <div className="text-sm text-green-600 mb-4">
+                                    {sentVendors.length} vendor(s) already sent
+                                </div>
+                            )}
 
                             <button
                                 onClick={handleSend}
